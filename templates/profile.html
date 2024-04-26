@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>Hello,
+{% if request.user.first_name %}
+  {{ request.user.first_name }}!
+{% else %}
+  {{ request.user }}!
+{% endif %}
+</h1>
+{% endblock %}
