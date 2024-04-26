@@ -4,11 +4,9 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-supabase = {git = "git+https://github.com/supabase-community/supabase-py"}
-fastapi = "*"
-pydantic = "*"
-uvicorn = "*"
-python-dotenv = "*"
+django = "*"
+djangorestframework = "*"
+knox = "*"
 
 [dev-packages]
 
