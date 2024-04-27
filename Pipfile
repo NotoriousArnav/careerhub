@@ -4,15 +4,15 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-boto3 = "*"
-cryptography = "*"
-jinja2 = "*"
 django = "*"
 djangorestframework = "*"
 knox = "*"
 gunicorn = "*"
 django-allauth = {extras = ["socialaccount"], version = "*"}
 dj-database-url = "*"
+boto3 = "*"
+jinja2 = "*"
+cryptography = "*"
 
 [dev-packages]
 
