@@ -4,16 +4,11 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-django = "*"
-djangorestframework = "*"
-knox = "*"
-gunicorn = "*"
-django-allauth = {extras = ["socialaccount"], version = "*"}
-dj-database-url = "*"
-boto3 = "*"
-jinja2 = "*"
-cryptography = "*"
-pillow = "*"
+fastapi = "*"
+uvicorn = "*"
+pydantic = "*"
+sqlalchemy = "*"
+psycopg2-binary = "*"
 
 [dev-packages]
 
