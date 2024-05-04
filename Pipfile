@@ -1,0 +1,18 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+fastapi = "*"
+pydantic = "*"
+sqlalchemy = "*"
+crewai = "*"
+langchain = "*"
+langchain-groq = "*"
+
+[dev-packages]
+chainlit = "*"
+
+[requires]
+python_version = "3.11"
