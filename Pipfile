@@ -10,6 +10,7 @@ pymongo = "*"
 uvicorn = "*"
 argon2-cffi = "*"
 argon2-cffi-bindings = "*"
+python-jose = {extras = ["cryptography"], version = "*"}
 
 [dev-packages]
 

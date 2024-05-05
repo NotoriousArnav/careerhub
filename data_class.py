@@ -83,3 +83,7 @@ class Resume(BaseModel):
 class UserData(BaseModel):
     resume: Resume
     password: str
+
+class LoginData(BaseModel):
+    email: EmailStr
+    password: str
