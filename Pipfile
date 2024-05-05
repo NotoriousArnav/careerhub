@@ -6,13 +6,12 @@ name = "pypi"
 [packages]
 fastapi = "*"
 pydantic = "*"
-sqlalchemy = "*"
-crewai = "*"
-langchain = "*"
-langchain-groq = "*"
+pymongo = "*"
+uvicorn = "*"
+argon2-cffi = "*"
+argon2-cffi-bindings = "*"
 
 [dev-packages]
-chainlit = "*"
 
 [requires]
 python_version = "3.11"
