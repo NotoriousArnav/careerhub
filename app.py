@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -41,6 +41,39 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode.update({'exp': expire})
     encoded_jwt = jwt.encode(to_encode, os.getenv('TOKEN_SECRET_KEY'), algorithm='HS256')
     return encoded_jwt
+
+def authenticate_user(email:str, password: str):
+    user = get_user(email)
+    if not user:
+        return False
+    if not verify_password(password, user.password):
+        return False
+    return user
+
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, os.getenv('TOKEN_SECRET_KEY'), algorithms=['HS256'])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(email=username)
+    except JWTError:
+        raise credentials_exception
+    user = get_user(token_data.email)
+    if user is None:
+        raise credentials_exception
+    return user
+
+async def get_current_active_user(
+    current_user: Annotated[UserData, Depends(get_current_user)],
+):
+    return current_user
+
 
 @app.post('/register')
 async def register(ud: UserData):
@@ -87,24 +120,31 @@ async def register(ud: UserData):
     }
 
 @app.post('/token')
-async def get_jwt(login: LoginData):
+async def get_jwt(login: Annotated[OAuth2PasswordRequestForm, Depends()]) -> Token:
     """# Get Token Route
     Post your Email and Password in Exchange for a JWT Token.
+    Note: Your Username is your Registered Email
     """
-    user = get_user(login.email)
-    if user:
-        if verify_password(login.password, user.password):
-            token = create_access_token(json.loads(user.resume.basic.json()))
-            return {
-                'access_token': token,
-                'type': 'Bearer'
-            }
-        else:
-            return {
-                'message': 'Incorrect Password'
-            }
-    else:
-        return {
-            'message': 'User not Found'
-        }
-    return {}
+    user = authenticate_user(login.username, login.password)
+    if not user:
+        raise HTTPException(
+                    status_code = status.HTTP_401_UNAUTHORIZED,
+                    detail = "Login Details Incorrect",
+                    headers = {'WWW-Authenticate', 'Bearer'}
+                )
+    access_token_expires = timedelta(minutes=os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 20))
+    access_token = create_access_token(
+                data = {"sub": user.resume.basic.email},
+                expires_delta = access_token_expires
+            )
+    return Token(access_token=access_token, token_type="Bearer")
+
+
+@app.get('/resume', response_model=Resume)
+async def get_user_resume(current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    # Return the Resume of the User
+    requires
+    - Authorization Token in the Header
+    """
+    return Resume(**current_user.resume.dict())

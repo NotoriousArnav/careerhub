@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, HttpUrl, Field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Annotated
 from datetime import datetime
 
 class SocialProfiles(BaseModel):
@@ -87,3 +87,11 @@ class UserData(BaseModel):
 class LoginData(BaseModel):
     email: EmailStr
     password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    email: EmailStr | None = None
+
