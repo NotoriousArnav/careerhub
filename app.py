@@ -74,11 +74,16 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         if username is None:
             raise credentials_exception
         token_data = TokenData(email=username)
-    except JWTError:
+    except JWTError as e:
+        print(e)
         raise credentials_exception
-    user = get_user(token_data.email)
+    user = get_user_by_username(token_data.email)
     if user is None:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="user not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 async def get_current_active_user(
@@ -147,7 +152,7 @@ async def get_jwt(login: Annotated[OAuth2PasswordRequestForm, Depends()]) -> Tok
                 )
     access_token_expires = timedelta(minutes=int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 20)))
     access_token = create_access_token(
-                data = {"sub": [user.resume.basic.email, user.username]},
+                data = {"sub": user.username},
                 expires_delta = access_token_expires
             )
     return Token(access_token=access_token, token_type="Bearer")
@@ -171,7 +176,61 @@ async def get_user_resume_username(username: str):
     if user:
         return user.resume
 
-@app.post('/resume')
-async def modify_user_resume(current_user: Annotated[UserData, Depends(get_current_active_user)]):
-    """# Modify User Resume"""
-    return {}
+@app.put('/resume', response_model=UserData)
+async def modify_user_resume(resume: Resume, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    # Modify User Resume
+    Update the resume details for the current user.
+    """
+    try:
+        # Update the resume field in the UserData object
+        current_user.resume = resume
+
+        # Convert the updated UserData object to a dictionary
+        import json
+        updated_user_data = json.loads(current_user.json())
+
+        # Update the document in MongoDB
+        result = db.users.update_one(
+            {'username': current_user.username},
+            {'$set': updated_user_data}
+        )
+
+        if result.modified_count > 0:
+            # Return the updated UserData object
+            return current_user
+        else:
+            return {'message': 'No changes made'}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put('/change-password', response_model=UserData)
+async def change_password(new_password: str, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    # Change User Password
+    Update the password for the current user.
+    """
+    try:
+        # Hash the new password
+        hashed_password = ph.hash(new_password)
+
+        # Update the password field in the UserData object
+        current_user.password = hashed_password
+
+        # Convert the updated UserData object to a dictionary
+        updated_user_data = current_user.dict()
+
+        # Update the document in MongoDB
+        result = db.users.update_one(
+            {'username': current_user.username},
+            {'$set': updated_user_data}
+        )
+
+        if result.modified_count > 0:
+            # Return the updated UserData object
+            return current_user
+        else:
+            raise HTTPException(status_code=400, detail="Failed to update password")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
