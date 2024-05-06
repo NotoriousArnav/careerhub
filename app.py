@@ -24,13 +24,25 @@ def verify_password(password, hashed):
     except Exception as e:
         return False
 
-def get_user(email: str):
+
+def get_user(email: str, username: str):
     obj = db.users.find_one(
         {
             "resume.basic.email": email # Finds out if the request is from a Existing User
         }
     )
-    return UserData(**obj)
+    if obj and obj['username']==username:
+        return UserData(**obj)
+
+def get_user_by_username(username: str):
+    obj = db.users.find_one(
+        {
+            "username": username # Finds out if the request is from a Existing User
+        }
+    )
+    if obj:
+        return UserData(**obj)
+
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
@@ -42,8 +54,8 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     encoded_jwt = jwt.encode(to_encode, os.getenv('TOKEN_SECRET_KEY'), algorithm='HS256')
     return encoded_jwt
 
-def authenticate_user(email:str, password: str):
-    user = get_user(email)
+def authenticate_user(login:str, password: str):
+    user = get_user_by_username(login)
     if not user:
         return False
     if not verify_password(password, user.password):
@@ -108,21 +120,22 @@ async def register(ud: UserData):
     - Password
 
     """
-    obj = get_user(ud.resume.basic.email)
+    obj = get_user(ud.resume.basic.email, ud.username)
+    obj1 = get_user_by_username(ud.username)
     ud.password = ph.hash(ud.password)
     data = json.loads(ud.json()) # Kinda Important as MongoDB requires a Dict
     uid = None
-    if obj is None:
+    if obj is None and obj1 is None:
         uid = db.users.insert_one(data).inserted_id
     return {
-        'user_created': True if obj is None else False,
-        'uid': uid
+        'user_created': True if ((obj is None) and (obj1 is None)) else False,
+        'uid': str(uid)
     }
 
 @app.post('/token')
 async def get_jwt(login: Annotated[OAuth2PasswordRequestForm, Depends()]) -> Token:
     """# Get Token Route
-    Post your Email and Password in Exchange for a JWT Token.
+    Post your username and Password in Exchange for a JWT Token.
     Note: Your Username is your Registered Email
     """
     user = authenticate_user(login.username, login.password)
@@ -132,9 +145,9 @@ async def get_jwt(login: Annotated[OAuth2PasswordRequestForm, Depends()]) -> Tok
                     detail = "Login Details Incorrect",
                     headers = {'WWW-Authenticate', 'Bearer'}
                 )
-    access_token_expires = timedelta(minutes=os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 20))
+    access_token_expires = timedelta(minutes=int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 20)))
     access_token = create_access_token(
-                data = {"sub": user.resume.basic.email},
+                data = {"sub": [user.resume.basic.email, user.username]},
                 expires_delta = access_token_expires
             )
     return Token(access_token=access_token, token_type="Bearer")
@@ -148,3 +161,17 @@ async def get_user_resume(current_user: Annotated[UserData, Depends(get_current_
     - Authorization Token in the Header
     """
     return Resume(**current_user.resume.dict())
+
+@app.get('/resume/{username}', response_model=Resume)
+async def get_user_resume_username(username: str):
+    """
+    # Get Resume of a Specific User
+    """
+    user = get_user_by_username(username)
+    if user:
+        return user.resume
+
+@app.post('/resume')
+async def modify_user_resume(current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """# Modify User Resume"""
+    return {}
