@@ -3,6 +3,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
+from bson.objectid import ObjectId
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from pymongo import MongoClient
@@ -395,7 +396,7 @@ async def create_opportunity(opportunity: Opportunity, current_user: Annotated[U
     inserted_opportunity = db.opportunities.find_one({"_id": opportunity_id})
 
     # Convert the database object to a Pydantic model
-    return Opportunity(**inserted_opportunity)
+    return OpportunityWithID(**inserted_opportunity)
 
 @app.get('/opportunities')
 async def list_all_opportunities(
@@ -418,7 +419,7 @@ async def list_all_opportunities(
     if keyword:
         query["$text"] = {"$search": keyword}
 
-    opportunities = [Opportunity(**opportunity) for opportunity in db.opportunities.find(query)]
+    opportunities = [OpportunityWithID(**opportunity) for opportunity in db.opportunities.find(query)]
     return opportunities
 
 @app.get("/opportunities/{opportunity_id}", response_model=Opportunity)

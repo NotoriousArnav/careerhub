@@ -152,3 +152,14 @@ class Opportunity(BaseModel):
         if values.get('opportunity_type') == 'job' and value is not None:
             raise ValueError('end_date should not be provided for job opportunities')
         return value
+
+class OpportunityWithID(Opportunity):
+    id: str
+
+    def __init__(self, **data):
+        if '_id' in data:
+            data['id'] = str(data['_id'])
+        super().__init__(**data)
+
+    class Config:
+        orm_mode = True
