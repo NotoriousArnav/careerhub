@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from pymongo import MongoClient
@@ -19,6 +20,16 @@ client = MongoClient(os.getenv('MONGODB_URI'))
 db = client.careerhub
 
 ph = PasswordHasher()
+
+origins = ["*"] # Should be configured to Only allow selected apps.
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def verify_password(password, hashed):
     try:
@@ -111,6 +122,46 @@ async def get_current_active_user(
     current_user: Annotated[UserData, Depends(get_current_user)],
 ):
     return current_user
+
+def is_recruiter_or_company_owner(current_user: UserData, company_handle: Optional[str] = None):
+    """
+    Check if the current user is a recruiter or a company owner.
+    If company_handle is provided, it checks for the specified company.
+    If company_handle is not provided, it checks if the user is a recruiter or company owner for any company.
+    """
+    if company_handle:
+        # Check if the user is a recruiter for the specified company
+        recruiter = db.recruiters.find_one({
+            "recruiter": current_user.username,
+            "company_handle": company_handle
+        })
+        if recruiter:
+            return True
+
+        # Check if the user is a founder/owner of the specified company
+        founder = db.founders.find_one({
+            "founder_email": current_user.resume.basic.email,
+            "company_handle": company_handle
+        })
+        if founder:
+            return True
+
+    else:
+        # Check if the user is a recruiter for any company
+        recruiter = db.recruiters.find_one({
+            "recruiter": current_user.username
+        })
+        if recruiter:
+            return True
+
+        # Check if the user is a founder/owner of any company
+        founder = db.founders.find_one({
+            "founder_email": current_user.resume.basic.email
+        })
+        if founder:
+            return True
+
+    return False
 
 
 @app.post('/register', response_model=RegistrationStatus)
@@ -276,7 +327,8 @@ async def register_company(company: Company, current_user: Annotated[UserData, D
 async def be_recruiter(company_handle: str, current_user: Annotated[UserData, Depends(get_current_active_user)]):
     data = Recruiter(
         company_handle=company_handle,
-        recruiter_email=current_user.resume.basic.email
+        recruiter_email=current_user.resume.basic.email,
+        recruiter=current_user.username
     )
     obj = db.recruiters.find_one(data.dict())
     if obj:
@@ -287,6 +339,21 @@ async def be_recruiter(company_handle: str, current_user: Annotated[UserData, De
     rid = db.recruiters.insert_one(data.dict()).inserted_id
     return data
 
+@app.delete('/register/recruiter')
+async def delete_recruiter(company_handle: str, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    data = Recruiter(
+        company_handle=company_handle,
+        recruiter_email=current_user.resume.basic.email,
+        recruiter=current_user.username
+    )
+    obj = db.recruiters.find_one(data.dict())
+    if not obj:
+        return data
+    db.recruiters.delete_one(data.dict())
+    return {
+        'data': data,
+        'removed': True
+    }
 
 @app.get('/recruiter', response_model=List[Recruiter])
 async def list_recruiters():
@@ -309,3 +376,98 @@ async def list_recruiters_from_company(company_handle: str):
     return data
 
 
+@app.post("/opportunities", response_model=Opportunity)
+async def create_opportunity(opportunity: Opportunity, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    Create a new job or internship opportunity.
+    """
+    # Check if the user is a recruiter or company owner
+    if not is_recruiter_or_company_owner(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only recruiters and company owners can create opportunities.")
+
+    # Convert the Pydantic model to a dictionary
+    opportunity_data = json.loads(opportunity.json())
+
+    # Insert the opportunity into the database
+    opportunity_id = db.opportunities.insert_one(opportunity_data).inserted_id
+
+    # Retrieve the inserted opportunity from the database
+    inserted_opportunity = db.opportunities.find_one({"_id": opportunity_id})
+
+    # Convert the database object to a Pydantic model
+    return Opportunity(**inserted_opportunity)
+
+@app.get('/opportunities')
+async def list_all_opportunities(
+    company: Optional[str] = None,
+    location: Optional[str] = None,
+    opportunity_type: Optional[str] = None,
+    keyword: Optional[str] = None
+):
+    """
+    Get a list of job and internship opportunities with filtering options.
+    """
+    query = {}
+
+    if company:
+        query["company.name"] = company
+    if location:
+        query["location"] = {"$regex": location, "$options": "i"}
+    if opportunity_type:
+        query["opportunity_type"] = opportunity_type
+    if keyword:
+        query["$text"] = {"$search": keyword}
+
+    opportunities = [Opportunity(**opportunity) for opportunity in db.opportunities.find(query)]
+    return opportunities
+
+@app.get("/opportunities/{opportunity_id}", response_model=Opportunity)
+async def get_opportunity(opportunity_id: str):
+    """
+    Get details of a specific job or internship opportunity.
+    """
+    opportunity = db.opportunities.find_one({"_id": ObjectId(opportunity_id)})
+    if not opportunity:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Opportunity not found.")
+    return Opportunity(**opportunity)
+
+@app.put("/opportunities/{opportunity_id}", response_model=Opportunity)
+async def update_opportunity(opportunity_id: str, opportunity: Opportunity, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    Update an existing job or internship opportunity.
+    """
+    # Check if the user is a recruiter or company owner
+    if not is_recruiter_or_company_owner(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only recruiters and company owners can update opportunities.")
+
+    # Convert the Pydantic model to a dictionary
+    opportunity_data = opportunity.dict()
+
+    # Update the opportunity in the database
+    result = db.opportunities.update_one({"_id": ObjectId(opportunity_id)}, {"$set": opportunity_data})
+
+    if result.modified_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Opportunity not found.")
+
+    # Retrieve the updated opportunity from the database
+    updated_opportunity = db.opportunities.find_one({"_id": ObjectId(opportunity_id)})
+
+    # Convert the database object to a Pydantic model
+    return Opportunity(**updated_opportunity)
+
+@app.delete("/opportunities/{opportunity_id}")
+async def delete_opportunity(opportunity_id: str, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    Delete a job or internship opportunity.
+    """
+    # Check if the user is a recruiter or company owner
+    if not is_recruiter_or_company_owner(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only recruiters and company owners can delete opportunities.")
+
+    # Delete the opportunity from the database
+    result = db.opportunities.delete_one({"_id": ObjectId(opportunity_id)})
+
+    if result.deleted_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Opportunity not found.")
+
+    return {"message": "Opportunity deleted successfully."}

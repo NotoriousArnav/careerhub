@@ -1,5 +1,5 @@
-from pydantic import BaseModel, EmailStr, HttpUrl, Field
-from typing import List, Dict, Optional, Annotated
+from pydantic import BaseModel, EmailStr, HttpUrl, Field, validator
+from typing import List, Dict, Optional, Annotated, Literal
 from datetime import datetime
 
 class SocialProfiles(BaseModel):
@@ -125,3 +125,30 @@ class Recruiter(BaseModel):
     recruiter_email: EmailStr
     recruiter: str
     company_handle: str
+
+class Opportunity(BaseModel):
+    position: str
+    company: Company
+    description: str
+    location: str
+    opportunity_type: Literal['job', 'internship']
+    start_date: datetime
+    end_date: Optional[datetime] = None  # Only for internships
+    requirements: List[Education] = []
+    preferred_skills: List[Skill] = []
+    preferred_experience: List[Experience] = []
+    application_deadline: datetime
+    salary_range: Optional[str] = None
+    url: Optional[HttpUrl] = None
+
+    @validator('opportunity_type')
+    def check_opportunity_type(cls, value):
+        if value not in ['job', 'internship']:
+            raise ValueError('opportunity_type must be either "job" or "internship"')
+        return value
+
+    @validator('end_date')
+    def check_end_date(cls, value, values):
+        if values.get('opportunity_type') == 'job' and value is not None:
+            raise ValueError('end_date should not be provided for job opportunities')
+        return value
