@@ -9,7 +9,10 @@ from data_class import *
 import os
 import json
 
-app = FastAPI()
+app = FastAPI(
+    title = "CareerHub Backend API",
+    description = """The Official Backend API of CareerHub. All API routes have been Documented using OpenAPI Standard"""
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 client = MongoClient(os.getenv('MONGODB_URI'))
@@ -24,7 +27,6 @@ def verify_password(password, hashed):
     except Exception as e:
         return False
 
-
 def get_user(email: str, username: str):
     obj = db.users.find_one(
         {
@@ -34,6 +36,7 @@ def get_user(email: str, username: str):
     if obj and obj['username']==username:
         return UserData(**obj)
 
+
 def get_user_by_username(username: str):
     obj = db.users.find_one(
         {
@@ -42,6 +45,24 @@ def get_user_by_username(username: str):
     )
     if obj:
         return UserData(**obj)
+
+def get_user_by_email(email: str):
+    obj = db.users.find_one(
+        {
+            "resume.basic.email": email # Finds out if the request is from a Existing User
+        }
+    )
+    if obj:
+        return UserData(**obj)
+
+def get_company_by_handle(handle: str):
+    obj = db.company.find_one(
+        {
+            "handle": handle
+        }
+    )
+    if obj:
+        return Company(**obj)
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
@@ -92,10 +113,10 @@ async def get_current_active_user(
     return current_user
 
 
-@app.post('/register')
+@app.post('/register', response_model=RegistrationStatus)
 async def register(ud: UserData):
     """
-    # Registraion Route
+    # Registration Route
     These Details are Atleast Required!
     - Basic Details
         - Name
@@ -125,23 +146,25 @@ async def register(ud: UserData):
     - Password
 
     """
-    obj = get_user(ud.resume.basic.email, ud.username)
+    obj = get_user_by_email(ud.resume.basic.email)
     obj1 = get_user_by_username(ud.username)
     ud.password = ph.hash(ud.password)
     data = json.loads(ud.json()) # Kinda Important as MongoDB requires a Dict
-    uid = None
+    uid = None # Don't ask me why it is so complicated. It works,so should you.
     if obj is None and obj1 is None:
         uid = db.users.insert_one(data).inserted_id
-    return {
-        'user_created': True if ((obj is None) and (obj1 is None)) else False,
-        'uid': str(uid)
-    }
+    username_taken = True if obj1 else False
+    email_used = True if obj else False
+    return RegistrationStatus(
+        user_created =True if ((obj is None) and (obj1 is None)) else False,
+        uid = str(uid),
+        message = UserCheck(username_taken = username_taken, email_used = email_used)
+    )
 
 @app.post('/token')
 async def get_jwt(login: Annotated[OAuth2PasswordRequestForm, Depends()]) -> Token:
     """# Get Token Route
-    Post your username and Password in Exchange for a JWT Token.
-    Note: Your Username is your Registered Email
+    Post your username and Password in Exchange for a JWT Token valid for 15 Minutes.
     """
     user = authenticate_user(login.username, login.password)
     if not user:
@@ -205,7 +228,7 @@ async def modify_user_resume(resume: Resume, current_user: Annotated[UserData, D
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put('/change-password', response_model=UserData)
+@app.put('/change-password')
 async def change_password(new_password: str, current_user: Annotated[UserData, Depends(get_current_active_user)]):
     """
     # Change User Password
@@ -229,8 +252,60 @@ async def change_password(new_password: str, current_user: Annotated[UserData, D
 
         if result.modified_count > 0:
             # Return the updated UserData object
-            return current_user
+            return {
+                'password_changed': true
+            }
         else:
             raise HTTPException(status_code=400, detail="Failed to update password")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post('/regsiter/company', response_model=Founder)
+async def register_company(company: Company, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """# Register a Company"""
+    if get_company_by_handle(company.handle):
+        return {
+            "company_exists": True
+        }
+    founder = Founder(founder_email=current_user.resume.basic.email, company_handle=company.handle)
+    cid = db.company.insert_one(json.loads(company.json())).inserted_id
+    fid = db.founders.insert_one(json.loads(founder.json())).inserted_id
+    return founder
+
+@app.post('/register/recruiter')
+async def be_recruiter(company_handle: str, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    data = Recruiter(
+        company_handle=company_handle,
+        recruiter_email=current_user.resume.basic.email
+    )
+    obj = db.recruiters.find_one(data.dict())
+    if obj:
+        return HTTPException(
+            status_code = 302,
+            detail=f"Recruiter already exists"
+        )
+    rid = db.recruiters.insert_one(data.dict()).inserted_id
+    return data
+
+
+@app.get('/recruiter', response_model=List[Recruiter])
+async def list_recruiters():
+    data = [Recruiter(**x) for x in db.recruiters.find({})]
+    return data
+
+@app.get('/company', response_model=List[Company])
+async def list_companies():
+    data = [Company(**x) for x in db.company.find({})]
+    return data
+
+@app.get('/company/{company_handle}', response_model=Company)
+async def company_details(company_handle):
+    data = Company(**db.company.find_one({'handle': company_handle}))
+    return data
+
+@app.get('/company/{company_handle}/recruiters')
+async def list_recruiters_from_company(company_handle: str):
+    data = [Recruiter(**x) for x in db.recruiters.find({ 'company_handle': company_handle })]
+    return data
+
+

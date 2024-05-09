@@ -68,8 +68,21 @@ class Interest(BaseModel):
     name: str
     keywords: List[str]
 
+class Company(BaseModel):
+    name: str
+    handle: str
+    industry: str
+    founded: int
+    description: str
+    logo: str
+
+class CurrentJob(BaseModel):
+    company: Company
+    position: str
+
 class Resume(BaseModel):
     basic: BasicInfo
+    working_at: Optional[CurrentJob] = None
     education: List[Education]
     skills: List[Skill]
     languages: List[Language]
@@ -79,7 +92,10 @@ class Resume(BaseModel):
     work: Optional[List[Experience]]
     interests: Optional[List[Interest]]
 
-# User Data
+class Founder(BaseModel):
+    founder_email: EmailStr # Founder's Email
+    company_handle: str
+
 class UserData(BaseModel):
     resume: Resume
     username: str
@@ -96,3 +112,16 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     email: str
 
+class UserCheck(BaseModel):
+    username_taken: bool
+    email_used: bool
+
+class RegistrationStatus(BaseModel):
+    user_created: bool
+    uid: str
+    message: UserCheck
+
+class Recruiter(BaseModel):
+    recruiter_email: EmailStr
+    recruiter: str
+    company_handle: str
