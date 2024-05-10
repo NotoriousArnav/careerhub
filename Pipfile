@@ -11,6 +11,7 @@ uvicorn = "*"
 argon2-cffi = "*"
 argon2-cffi-bindings = "*"
 python-jose = {extras = ["cryptography"], version = "*"}
+gitpython = "*"
 
 [dev-packages]
 

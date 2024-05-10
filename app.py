@@ -8,12 +8,20 @@ from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from pymongo import MongoClient
 from data_class import *
+import git
 import os
 import json
 
+repo = git.Repo(search_parent_directories=True)
+sha = repo.head.object.hexsha
+
 app = FastAPI(
     title = "CareerHub Backend API",
-    description = """The Official Backend API of CareerHub. All API routes have been Documented using OpenAPI Standard"""
+    description = f"""## CareerHub
+The Official Backend API of CareerHub. All API routes have been Documented using OpenAPI Standard.
+
+**Currently Running on Commit: {sha[:7]}**
+"""
 )
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -324,6 +332,45 @@ async def register_company(company: Company, current_user: Annotated[UserData, D
     fid = db.founders.insert_one(json.loads(founder.json())).inserted_id
     return founder
 
+@app.delete("/register/company", response_model=dict)
+async def unregister_company(request: UnregisterCompanyRequest, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    Unregister a company.
+    """
+    company_handle = request.company_handle
+    # Check if the current user is the founder/owner of the company
+    founder = db.founders.find_one({
+        "founder_email": current_user.resume.basic.email,
+        "company_handle": company_handle
+    })
+    if not founder:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only the company owner can unregister the company.")
+
+    # Delete the company from the database
+    result = db.company.delete_one({"handle": company_handle})
+
+    if result.deleted_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Company not found.")
+
+    # Delete the founder document
+    db.founders.delete_one({"_id": founder["_id"]})
+
+    # Delete all recruiters associated with the company
+    db.recruiters.delete_many({"company_handle": company_handle})
+
+    # Delete all opportunities associated with the company
+    db.opportunities.delete_many({"company.handle": company_handle})
+
+    # Notify recruiters about company unregistration
+    recruiters = db.recruiters.find({"company_handle": company_handle})
+    for recruiter in recruiters:
+        # Send notification to the recruiter's email
+        recruiter_email = recruiter["recruiter_email"]
+        # Include the reason for unregistration in the notification
+        # ... (your notification logic here)
+
+    return {"message": "Company unregistered successfully.", "reason": request.reason}
+
 @app.post('/register/recruiter')
 async def be_recruiter(company_handle: str, current_user: Annotated[UserData, Depends(get_current_active_user)]):
     data = Recruiter(
@@ -472,3 +519,44 @@ async def delete_opportunity(opportunity_id: str, current_user: Annotated[UserDa
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Opportunity not found.")
 
     return {"message": "Opportunity deleted successfully."}
+
+@app.post("/opportunities/{opportunity_id}/apply", response_model=dict)
+async def apply_for_opportunity(opportunity_id: str, application: CandidateApplication, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    Apply for a job or internship opportunity.
+    """
+    # Check if the current user is not a recruiter or company owner
+    if is_recruiter_or_company_owner(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Recruiters and company owners cannot apply for opportunities.")
+
+    # Check if the opportunity exists
+    opportunity = db.opportunities.find_one({"_id": ObjectId(opportunity_id)})
+    if not opportunity:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Opportunity not found.")
+
+    # Insert the application data into the database
+    application_data = application.dict()
+    application_data["opportunity_id"] = opportunity_id
+    application_id = db.applications.insert_one(application_data).inserted_id
+
+    return {"message": "Application submitted successfully.", "application_id": str(application_id)}
+
+
+@app.get("/opportunities/{opportunity_id}/applications", response_model=List[CandidateApplication])
+async def get_opportunity_applications(opportunity_id: str, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    Get a list of candidates who applied for a job or internship opportunity.
+    """
+    # Check if the current user is a recruiter or company owner
+    if not is_recruiter_or_company_owner(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only recruiters and company owners can view applications.")
+
+    # Check if the opportunity exists
+    opportunity = db.opportunities.find_one({"_id": ObjectId(opportunity_id)})
+    if not opportunity:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Opportunity not found.")
+
+    # Retrieve the applications for the opportunity from the database
+    applications = [CandidateApplication(**application) for application in db.applications.find({"opportunity_id": opportunity_id})]
+
+    return applications

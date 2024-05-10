@@ -163,3 +163,13 @@ class OpportunityWithID(Opportunity):
 
     class Config:
         orm_mode = True
+
+class CandidateApplication(BaseModel):
+    candidate_email: EmailStr
+    opportunity_id: str
+    resume: Resume
+    cover_letter: str
+
+class UnregisterCompanyRequest(BaseModel):
+    company_handle: str
+    reason: str
