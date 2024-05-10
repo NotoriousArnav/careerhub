@@ -167,7 +167,6 @@ class OpportunityWithID(Opportunity):
 class CandidateApplication(BaseModel):
     candidate_email: EmailStr
     opportunity_id: str
-    resume: Resume
     cover_letter: str
 
 class UnregisterCompanyRequest(BaseModel):
