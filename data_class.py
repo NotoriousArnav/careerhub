@@ -172,3 +172,7 @@ class CandidateApplication(BaseModel):
 class UnregisterCompanyRequest(BaseModel):
     company_handle: str
     reason: str
+
+class UnregisterUserRequest(BaseModel):
+    email: EmailStr
+    reason: str

@@ -172,6 +172,11 @@ def is_recruiter_or_company_owner(current_user: UserData, company_handle: Option
 
     return False
 
+@app.get('/')
+async def index():
+    return {
+        'message': 'The Service is up'
+    }
 
 @app.post('/register', response_model=RegistrationStatus)
 async def register(ud: UserData):
@@ -220,6 +225,31 @@ async def register(ud: UserData):
         uid = str(uid),
         message = UserCheck(username_taken = username_taken, email_used = email_used)
     )
+
+@app.delete("/register")
+async def unregister_user(request: UnregisterUserRequest, current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """
+    Unregister a user from the system.
+    """
+    # Verify that the email in the request matches the current user's email
+    if request.email != current_user.resume.basic.email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Email does not match the current user.")
+
+    # Delete the user document from the database
+    result = db.users.delete_one({"resume.basic.email": request.email})
+
+    if result.deleted_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    # Delete any other associated data (e.g., applications, recruiters, etc.)
+    db.applications.delete_many({"candidate_email": request.email})
+    db.recruiters.delete_many({"recruiter_email": request.email})
+    # ... (delete any other associated data)
+
+    # Log the unregister reason
+    logging.info(f"User {request.email} unregistered. Reason: {request.reason}")
+
+    return {"message": "User unregistered successfully."}
 
 @app.post('/token')
 async def get_jwt(login: Annotated[OAuth2PasswordRequestForm, Depends()]) -> Token:
