@@ -9,7 +9,6 @@ from jose import JWTError, jwt
 from pymongo import MongoClient
 from data_class import *
 import git
-import datetime
 import dns
 import os
 import json
@@ -114,7 +113,8 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     try:
         payload = jwt.decode(token, os.getenv('TOKEN_SECRET_KEY'), algorithms=['HS256'])
         username: str = payload.get("sub")
-        if exp is None or datetime.datetime.utcnow() >= datetime.datetime.fromtimestamp(exp):
+        exp: int = payload.get("exp")
+        if exp is None or datetime.utcnow() >= datetime.fromtimestamp(exp):
             raise credentials_exception
         if username is None:
             raise credentials_exception
@@ -347,12 +347,21 @@ async def change_password(new_password: str, current_user: Annotated[UserData, D
         if result.modified_count > 0:
             # Return the updated UserData object
             return {
-                'password_changed': true
+                'password_changed': True
             }
         else:
             raise HTTPException(status_code=400, detail="Failed to update password")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/check-token')
+async def check_token_provided(current_user: Annotated[UserData, Depends(get_current_active_user)]):
+    """# Check If Token is Valid or Not
+If Invalid, then HTTPException is Returned
+    """
+    return {
+        'pass': True
+    }
 
 @app.post('/regsiter/company', response_model=Founder)
 async def register_company(company: Company, current_user: Annotated[UserData, Depends(get_current_active_user)]):
